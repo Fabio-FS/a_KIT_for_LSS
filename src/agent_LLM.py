@@ -52,7 +52,6 @@ def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self
     except Exception:
         return f"ERROR. But I like cats."
 
-
 def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, self_memory = 10, read_memory = 5):
     if debug:
         return "just a test post"
@@ -95,7 +94,9 @@ def _like_decision_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False
     
     payload = {
         "messages": [{"role": "user", "content": prompt}],
-        "model": PARAMS["MODEL"]
+        "model": PARAMS["MODEL"],
+        "max_tokens": 1,
+        "temperature": 0.0
     }
     headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
     
