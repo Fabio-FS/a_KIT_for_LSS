@@ -4,6 +4,7 @@ import requests
 import re
 import os
 
+import aiohttp
 
 def _initialize_agents_LLM(G, PARAMS):
     identity = _load_prompt("identity")
@@ -14,14 +15,7 @@ def _initialize_agents_LLM(G, PARAMS):
         agent["likes_with_history"] = likes_with_history
         agent["post_generation"] = post_generation
 
-def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self_memory=10, debug=False):
-    """
-    Generate a post that conditions ONLY on the agent's own past posts.
-    Used to 'thermalize' the history for t < 0.
-    """
-    if debug:
-        return f"(warmup) agent {agent.index} at pre-timestep {current_timestep_index}"
-
+def _generate_prompt_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self_memory=10):
     # build self-history using array index, not 'simulation time'
     start = max(0, current_timestep_index - self_memory)
     self_history = []
@@ -38,7 +32,17 @@ def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self
         prompt = template.format(identity=agent["identity"], history=self_history, context="")
     else:
         prompt = warmup_prompt.format(identity=agent["identity"], history=self_history)
-
+    return prompt
+def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self_memory=10, debug=False):
+    """
+    Generate a post that conditions ONLY on the agent's own past posts.
+    Used to 'thermalize' the history for t < 0.
+    """
+    if debug:
+        return f"(warmup) agent {agent.index} at pre-timestep {current_timestep_index}"
+    else:
+        prompt = _generate_prompt_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self_memory)
+    
     payload = {
         "messages": [{"role": "user", "content": prompt}],
         "model": PARAMS["MODEL"]
@@ -52,9 +56,7 @@ def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self
     except Exception:
         return f"ERROR. But I like cats."
 
-def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, self_memory = 10, read_memory = 5):
-    if debug:
-        return "just a test post"
+def _generate_prompt_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, self_memory = 10, read_memory = 5):
     
     self_history = _build_history_of_written_posts(agent, current_timestep, POSTS, memory = self_memory)
     read_history = _build_history_of_recent_reads(agent, current_timestep, POSTS, memory = read_memory)
@@ -63,7 +65,12 @@ def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, se
         history = self_history, 
         context = read_history
     )
-    
+    return prompt
+def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, self_memory = 10, read_memory = 5):
+    if debug:
+        return "just a test post"
+    else:
+        prompt = _generate_prompt_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = debug, self_memory = self_memory, read_memory = read_memory)
     payload = {
         "messages": [{"role": "user", "content": prompt}],
         "model": PARAMS["MODEL"]
@@ -80,8 +87,7 @@ def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, se
     
     return content
 
-
-def _like_decision_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False):
+def _generate_prompt_like_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False):
     if debug:
         return np.random.rand() < 0.5
     
@@ -91,6 +97,12 @@ def _like_decision_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False
         history=_build_history_of_written_posts(agent, current_timestep, POSTS, memory=10), 
         message=post
     )
+    return prompt
+def _generate_like_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False):
+    if debug:
+        return np.random.rand() < 0.5
+    else:
+        prompt = _generate_prompt_like_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=debug)
     
     payload = {
         "messages": [{"role": "user", "content": prompt}],
@@ -110,7 +122,22 @@ def _like_decision_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False
     
     return np.random.rand() < _extract_number(content) / 9
 
-
+def _single_like_request(prompt, PARAMS):
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model": PARAMS["MODEL"],
+        "max_tokens": 1,
+        "temperature": 0.0
+    }
+    headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
+    
+    try:
+        r = requests.post(PARAMS["API_URL"], headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        content = r.json()["choices"][0]["message"]["content"]
+        return np.random.rand() < _extract_number(content) / 9
+    except Exception:
+        return np.random.rand() < 0.5
 
 def _load_prompt(field_name) -> str:
     import json

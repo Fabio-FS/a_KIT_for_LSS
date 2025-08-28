@@ -1,68 +1,138 @@
 import numpy as np
 import igraph as ig
+import asyncio
+import aiohttp
+import aiohttp
+
 
 from interfaces import _generate_post, _like_decision, _generate_post_warmup, _initialize_agents
+from agent_LLM import _generate_prompt_like_LLM, _single_like_request, _extract_number
 
 
 
-
-def run_simulation(PARAMS):
-
-
+async def run_simulation(PARAMS):
     if PARAMS["seed"] is not None:
         np.random.seed(PARAMS["seed"])
     else:
         np.random.seed(42)
 
     G = generate_network(PARAMS)
-
     POSTS, WEIGHTS, READ_MATRIX, LIKES = _initialize_posts_and_weights(G, PARAMS)
 
-    # Changing from here on out. We start the simulation at time steps "fill_history". Otherwise, the negative indices are a pain.
     for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
-        #print(f"i: {i}")
-        G["T_current"] = i  # Update simulation time first
-        current_timestep_index = i  # This is the array index for new posts
+        G["T_current"] = i
         print(f"T_current: {G['T_current']}")
         
-        # Calculate weights, find top k posts, and mark posts as read
         WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2)
 
-        # WEIGHTS [sender, timestep, receiver_lookout_position], TOP_POSTS [receiver, rank, (author_id, timestep)], READ_MATRIX [author_id, timestep, receiver_lookout_position]
-        # !! always access receiver_lookout_position from the receiver's perspective using the lookup table
-        ## print the first fill_history elements of POSTS
-        #printout_posts(G, POSTS, G["fill_history"])
-        for agent in G.vs:
-            agent_id = agent.index
-            for p in range(len(TOP_POSTS[agent_id])):
-                sender_id = TOP_POSTS[agent_id, p, 0]
-                timestep  = TOP_POSTS[agent_id, p, 1]
+        List_of_prompts, coordinates_of_prompts = _generate_like_prompts(G, TOP_POSTS, POSTS, PARAMS)
+        #like_decisions = asyncio.run(_execute_like_prompts_parallel(List_of_prompts, PARAMS))
+        like_decisions = await _execute_like_prompts_parallel(List_of_prompts, PARAMS)
+        _update_likes_and_consequences(G, LIKES, like_decisions, coordinates_of_prompts)
 
-                # guard against padding
-                if sender_id == -1 or timestep == -1:
-                    print(f"Padding at timestep {G['T_current']}")
-                    # I don't expect this to ever happen.
-                    continue
-
-                post = POSTS[sender_id][timestep]
-                if post is None:
-                    print(f"Post of agent {sender_id} is None at timestep {timestep}")
-                    # I don't expect this to ever happen.
-                    continue
-                like_decision = _like_decision(agent, G["T_current"], POSTS, post, PARAMS)
-                if like_decision:
-                    LIKES[sender_id, timestep] += 1
-                    G.vs[sender_id]["success"] += 1
-
-                    # now I check which is the position of the sender in the receiver's neighbor list
-
-                    position = np.where(agent["neighbors"] == sender_id)[0]
-                    agent["preferred_neighbors"][position] += 1
-            
-            # Generate and store new post at current timestep
-            post = _generate_post(agent, G["T_current"], POSTS, PARAMS)
+        post_prompts = [_generate_post(agent, G["T_current"], POSTS, PARAMS) for agent in G.vs]
+        posts = await _execute_post_prompts_parallel(post_prompts, PARAMS)
+        for agent_id, post in enumerate(posts):
             POSTS[agent_id][G["T_current"]] = post
+
     return G, POSTS, WEIGHTS, READ_MATRIX, LIKES
+
+
+async def _execute_post_prompts_parallel(prompts, PARAMS):
+    async def _single_post_request_async(session, prompt):
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": PARAMS["MODEL"]
+        }
+        headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
+        
+        try:
+            async with session.post(PARAMS["API_URL"], headers=headers, json=payload) as response:
+                result = await response.json()
+                return result["choices"][0]["message"]["content"]
+        except Exception:
+            return "ERROR. But I like cats."
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [_single_post_request_async(session, prompt) for prompt in prompts]
+        return await asyncio.gather(*tasks)
+
+
+def _generate_like_prompts(G, TOP_POSTS, POSTS, PARAMS):
+    prompts = []
+    coordinates = []
+    
+    for agent in G.vs:
+        agent_id = agent.index
+        for p in range(len(TOP_POSTS[agent_id])):
+            sender_id = TOP_POSTS[agent_id, p, 0]
+            timestep = TOP_POSTS[agent_id, p, 1]
+            
+            if sender_id == -1 or timestep == -1:
+                continue
+                
+            post = POSTS[sender_id][timestep]
+            if post is None:
+                continue
+                
+            prompt = _generate_prompt_like_LLM(agent, G["T_current"], POSTS, post, PARAMS)
+            prompts.append(prompt)
+            coordinates.append([agent_id, sender_id, timestep])  # [reader, author, timestep]
+    
+    return prompts, coordinates
+def _execute_like_prompts(prompts, PARAMS):
+    decisions = np.zeros(len(prompts))
+    for i, prompt in enumerate(prompts):
+        # Call your existing _generate_like_LLM but just the API part
+        # Or implement async batch here later
+        decision = _single_like_request(prompt, PARAMS)
+        decisions[i] = decision
+    return decisions
+
+
+async def _execute_like_prompts_parallel(prompts, PARAMS):
+   async def _single_like_request_async(session, prompt):
+       payload = {
+           "messages": [{"role": "user", "content": prompt}],
+           "model": PARAMS["MODEL"],
+           "max_tokens": 1,
+           "temperature": 0.0
+       }
+       headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
+       
+       try:
+           async with session.post(PARAMS["API_URL"], headers=headers, json=payload) as response:
+               result = await response.json()
+               content = result["choices"][0]["message"]["content"]
+               return np.random.rand() < _extract_number(content) / 9
+       except Exception:
+           return np.random.rand() < 0.5
+   
+   async with aiohttp.ClientSession() as session:
+       tasks = [_single_like_request_async(session, prompt) for prompt in prompts]
+       return await asyncio.gather(*tasks)
+
+def _execute_prompts(prompts, PARAMS):
+   return asyncio.run(_execute_prompts_parallel(prompts, PARAMS))
+
+
+
+def _update_likes_and_consequences(G, LIKES, decisions, coordinates):
+    for i, decision in enumerate(decisions):
+        if decision:
+            reader_id, sender_id, timestep = coordinates[i]
+            LIKES[sender_id, timestep] += 1
+            G.vs[sender_id]["success"] += 1
+            
+            reader = G.vs[reader_id]
+            position = np.where(reader["neighbors"] == sender_id)[0]
+            reader["preferred_neighbors"][position] += 1
+        
+
+
+
+
+
 
 
 def _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
@@ -82,6 +152,9 @@ def _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
     return WEIGHTS, TOP_POSTS, READ_MATRIX
 
 
+
+
+
 def printout_posts(G, POSTS, n):
     print("__________")
     for i in range(n):
@@ -89,13 +162,6 @@ def printout_posts(G, POSTS, n):
         for i, _ in enumerate(G.vs):
             print(f"agent {i}: {POSTS[i][i]}")
     print("__________")
-
-
-
-
-
-
-
 def _build_neighbor_lookups(G):
     for agent in G.vs:
         lookout = np.zeros(len(agent["neighbors"]), dtype=int)
@@ -117,9 +183,6 @@ def _build_neighbor_lookups(G):
 
     G["neighbor_lookup"] = neighbor_lookup
     G["lookout_lookup"]  = lookout_lookup
-
-
-
 def generate_network(PARAMS):
 
     N = PARAMS["num_agents"]
@@ -154,7 +217,6 @@ def generate_network(PARAMS):
     # initialize agent_LLM stuff
     _initialize_agents(G, PARAMS)
     return G
-
 def _initialize_posts_and_weights(G, PARAMS):
     """
     Allocate POSTS/READ_MATRIX/WEIGHTS/LIKES and 'thermalize'
@@ -306,41 +368,32 @@ def _find_top_k_posts(G, WEIGHTS, k=5):
     
     return top_posts
 
-def _mark_posts_as_read(G, READ_MATRIX, top_posts):
-    """ Mark selected top posts as read in the READ_MATRIX - vectorized """
+def _mark_posts_as_read(G, read_MATRIX, top_posts):
     num_agents, k, _ = top_posts.shape
     
-    # Get all valid posts (not -1 padding)
     valid_mask = (top_posts[:, :, 0] != -1) & (top_posts[:, :, 1] != -1)
     valid_agents, valid_ranks = np.where(valid_mask)
     
     if len(valid_agents) == 0:
-        return
+        return read_MATRIX
     
-    # Extract author_ids and timesteps for valid posts
     author_ids = top_posts[valid_agents, valid_ranks, 0]
     timesteps = top_posts[valid_agents, valid_ranks, 1]
     
-    # Pre-build lookup arrays
-    max_degree = READ_MATRIX.shape[2]
-    neighbor_lookup = np.full((num_agents, max_degree), -1, dtype=int)
-    lookout_lookup = np.full((num_agents, max_degree), -1, dtype=int)
-    
-
     neighbor_lookup = G["neighbor_lookup"]
-    lookout_lookup  = G["lookout_lookup"]
+    lookout_lookup = G["lookout_lookup"]
 
     for i in range(len(valid_agents)):
         agent_id = valid_agents[i]
         author_id = author_ids[i]
         timestep = timesteps[i]
         
-        # Find author in agent's neighbors
         neighbor_positions = np.where(neighbor_lookup[agent_id] == author_id)[0]
         if len(neighbor_positions) > 0:
             lookout_pos = lookout_lookup[agent_id, neighbor_positions[0]]
-            READ_MATRIX[author_id, timestep, lookout_pos] = 1
-    return READ_MATRIX
+            read_MATRIX[author_id, timestep, lookout_pos] = 1
+    
+    return read_MATRIX
 
 def _update_read_list(G, top_posts):
     """Update each agent's read_history array with what they read this timestep"""
