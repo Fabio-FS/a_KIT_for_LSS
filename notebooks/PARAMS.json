@@ -1,0 +1,11 @@
+{
+  "num_agents": 32,
+  "neighbors": 4,
+  "timesteps": 100,
+  "fill_history": 3,
+  "seed": null,
+  "opinion_model": "LLM",
+  "self_memory": 10,
+  "debug": false
+
+} 
