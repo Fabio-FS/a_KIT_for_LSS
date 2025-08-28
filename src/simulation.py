@@ -1,6 +1,5 @@
 import numpy as np
 import igraph as ig
-from src.agent_LLM import _load_prompt
 
 from interfaces import _generate_post, _like_decision, _generate_post_warmup, _initialize_agents
 
@@ -8,29 +7,31 @@ from interfaces import _generate_post, _like_decision, _generate_post_warmup, _i
 
 
 def run_simulation(PARAMS):
-    num_agents, neighbors, timesteps, fill_history, seed = PARAMS["num_agents"], PARAMS["neighbors"], PARAMS["timesteps"], PARAMS["fill_history"], PARAMS["seed"]
 
 
-    if seed is not None:
-        np.random.seed(seed)
+    if PARAMS["seed"] is not None:
+        np.random.seed(PARAMS["seed"])
     else:
         np.random.seed(42)
 
-    G = generate_network(N = num_agents, neighbors = neighbors, p = 0.2, timesteps = timesteps, fill_history = fill_history)
-    POSTS, WEIGHTS, READ_MATRIX, LIKES = _initialize_posts_and_weights(G, debug = True)
+    G = generate_network(PARAMS)
+
+    POSTS, WEIGHTS, READ_MATRIX, LIKES = _initialize_posts_and_weights(G, PARAMS)
 
     # Changing from here on out. We start the simulation at time steps "fill_history". Otherwise, the negative indices are a pain.
-    for i in range(fill_history, fill_history + timesteps):
+    for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
+        #print(f"i: {i}")
         G["T_current"] = i  # Update simulation time first
         current_timestep_index = i  # This is the array index for new posts
         print(f"T_current: {G['T_current']}")
         
         # Calculate weights, find top k posts, and mark posts as read
-        WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, TOP_POSTS, k = 2)
+        WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2)
 
         # WEIGHTS [sender, timestep, receiver_lookout_position], TOP_POSTS [receiver, rank, (author_id, timestep)], READ_MATRIX [author_id, timestep, receiver_lookout_position]
         # !! always access receiver_lookout_position from the receiver's perspective using the lookup table
-
+        ## print the first fill_history elements of POSTS
+        #printout_posts(G, POSTS, G["fill_history"])
         for agent in G.vs:
             agent_id = agent.index
             for p in range(len(TOP_POSTS[agent_id])):
@@ -45,7 +46,7 @@ def run_simulation(PARAMS):
 
                 post = POSTS[sender_id][timestep]
                 if post is None:
-                    print(f"Post of agent {sender_id} is None at timestep {G['T_current']}")
+                    print(f"Post of agent {sender_id} is None at timestep {timestep}")
                     # I don't expect this to ever happen.
                     continue
                 like_decision = _like_decision(agent, G["T_current"], POSTS, post, PARAMS)
@@ -64,10 +65,7 @@ def run_simulation(PARAMS):
     return G, POSTS, WEIGHTS, READ_MATRIX, LIKES
 
 
-
-
-
-def _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, TOP_POSTS, k = 2):
+def _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
     WEIGHTS = _calculate_weights(G, READ_MATRIX, LIKES, PARAMS)
 
     # Find top k posts (k is the number of posts read per round)
@@ -84,12 +82,28 @@ def _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, TOP_POSTS, k = 2)
     return WEIGHTS, TOP_POSTS, READ_MATRIX
 
 
+def printout_posts(G, POSTS, n):
+    print("__________")
+    for i in range(n):
+        print(f"timestep: {i}")
+        for i, _ in enumerate(G.vs):
+            print(f"agent {i}: {POSTS[i][i]}")
+    print("__________")
 
 
 
 
 
-def build_neighbor_lookups(G):
+
+
+def _build_neighbor_lookups(G):
+    for agent in G.vs:
+        lookout = np.zeros(len(agent["neighbors"]), dtype=int)
+        for i, neighbor_id in enumerate(agent["neighbors"]):
+            neighbor_neighbors = G.vs[neighbor_id]["neighbors"]
+            lookout[i] = np.where(neighbor_neighbors == agent.index)[0][0]
+        agent["lookout"] = lookout
+
     num_agents = len(G.vs)
     max_degree = max(G.degree())
     neighbor_lookup = np.full((num_agents, max_degree), -1, dtype=int)
@@ -103,9 +117,18 @@ def build_neighbor_lookups(G):
 
     G["neighbor_lookup"] = neighbor_lookup
     G["lookout_lookup"]  = lookout_lookup
-def generate_network(PARAMS,N = 5, neighbors = 4, p = 0.05, timesteps = 10, fill_history = 3, k = 2):
-    N, neighbors, timesteps, fill_history, k = PARAMS["num_agents"], PARAMS["neighbors"], PARAMS["timesteps"], PARAMS["fill_history"], PARAMS["k"]
-    G = ig.Graph.Watts_Strogatz(dim=1, size=N, nei=neighbors, p=p)
+
+
+
+def generate_network(PARAMS):
+
+    N = PARAMS["num_agents"]
+    neighbors = PARAMS["neighbors"]
+    timesteps = PARAMS["timesteps"]
+    fill_history = PARAMS["fill_history"]
+    post_read_per_round = PARAMS["post_read_per_round"]
+    rewiring_p = PARAMS["rewiring_p"]
+    G = ig.Graph.Watts_Strogatz(dim=1, size=N, nei=neighbors, p=rewiring_p)
 
 
 
@@ -123,14 +146,15 @@ def generate_network(PARAMS,N = 5, neighbors = 4, p = 0.05, timesteps = 10, fill
         # number of likes given to each neighbor
         agent["preferred_neighbors"] = np.zeros(len(agent["neighbors"]))
         # k is the number of posts read per round.
-        agent["read_history"] = np.full((timesteps, k, 2), -1, dtype=int)  # -1 for empty slots
+        agent["read_history"] = np.full((G["T_total"], post_read_per_round, 2), -1, dtype=int)  # -1 for empty slots
 
-    build_neighbor_lookups(G)
+    _build_neighbor_lookups(G)
 
 
     # initialize agent_LLM stuff
     _initialize_agents(G, PARAMS)
     return G
+
 def _initialize_posts_and_weights(G, PARAMS):
     """
     Allocate POSTS/READ_MATRIX/WEIGHTS/LIKES and 'thermalize'
@@ -155,21 +179,25 @@ def _initialize_posts_and_weights(G, PARAMS):
         _thermalize_system(G, POSTS, PARAMS)
     return POSTS, READ_MATRIX, WEIGHTS, LIKES
 def _thermalize_system(G, POSTS, PARAMS):
-    
+    #print("TERMALIZATION -------------")
     for t_idx in range(PARAMS["fill_history"]):  # array indices 0..fill_history-1 (actual time -fill_history..-1)
+        #print("TH :", t_idx)        
         for agent in G.vs:
+            #print(f"agent {agent.index} is warming up at timestep {t_idx}")
             if PARAMS["opinion_model"] == "LLM":
                 post = _generate_post_warmup(agent, 
-                                            current_timestep_index=t_idx, 
+                                            timestep=t_idx, 
                                             POSTS=POSTS, 
-                                            self_memory=PARAMS["self_memory"], 
-                                            debug=PARAMS["debug"],
-                                            opinion_model=PARAMS["opinion_model"])
+                                            PARAMS = PARAMS)
                 POSTS[agent.index][t_idx] = post
+                #print(f"agent {agent.index} post: {post}")
             else:
                 print("unknown opinion model")
                 exit()
-
+    #printout_posts(G, POSTS, G["fill_history"])
+    #print("__________")
+    #print("__________")
+    #print("__________")
 
 def _update_personal_weights(G, WEIGHTS, W_personal_weights):
     """ Fully vectorized update of personalized weights """
@@ -242,8 +270,7 @@ def _calculate_weights(G, READ_MATRIX, LIKES, PARAMS):
     WEIGHTS[READ_MATRIX == 1] = 0
 
     # set weights to 0 for future timesteps (after current simulation time)
-    current_timestep_index = G["T_current"] + fill_history
-    future_mask = np.arange(G["T_total"]) > current_timestep_index
+    future_mask = np.arange(G["T_total"]) >= G["T_current"]
     WEIGHTS[:, future_mask, :] = 0
 
     return WEIGHTS
@@ -314,13 +341,10 @@ def _mark_posts_as_read(G, READ_MATRIX, top_posts):
             lookout_pos = lookout_lookup[agent_id, neighbor_positions[0]]
             READ_MATRIX[author_id, timestep, lookout_pos] = 1
     return READ_MATRIX
+
 def _update_read_list(G, top_posts):
     """Update each agent's read_history array with what they read this timestep"""
-    num_agents, _, _ = top_posts.shape
     current_timestep = G["T_current"]
     
-    for agent_id in range(num_agents):
-        # Copy the top_posts for this agent directly into their read_history
-        # top_posts[agent_id] is shape (k, 2) - exactly what we need
+    for agent_id in range(len(G.vs)):
         G.vs[agent_id]["read_history"][current_timestep, :, :] = top_posts[agent_id]
-

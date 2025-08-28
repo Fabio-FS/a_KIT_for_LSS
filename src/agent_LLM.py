@@ -14,8 +14,7 @@ def _initialize_agents_LLM(G, PARAMS):
         agent["likes_with_history"] = likes_with_history
         agent["post_generation"] = post_generation
 
-
-def _generate_post_warmup(agent, current_timestep_index, POSTS, self_memory=10, debug=False):
+def _generate_post_warmup_LLM(agent, current_timestep_index, POSTS, PARAMS, self_memory=10, debug=False):
     """
     Generate a post that conditions ONLY on the agent's own past posts.
     Used to 'thermalize' the history for t < 0.
@@ -42,15 +41,73 @@ def _generate_post_warmup(agent, current_timestep_index, POSTS, self_memory=10, 
 
     payload = {
         "messages": [{"role": "user", "content": prompt}],
-        "model": MODEL
+        "model": PARAMS["MODEL"]
     }
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+    headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        response = requests.post(PARAMS["API_URL"], headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
+        #return "I like cats."
     except Exception:
         return f"ERROR. But I like cats."
+
+
+def _generate_post_LLM(agent, current_timestep, POSTS, PARAMS, debug = False, self_memory = 10, read_memory = 5):
+    if debug:
+        return "just a test post"
+    
+    self_history = _build_history_of_written_posts(agent, current_timestep, POSTS, memory = self_memory)
+    read_history = _build_history_of_recent_reads(agent, current_timestep, POSTS, memory = read_memory)
+    prompt = agent["post_generation"].format(
+        identity = agent["identity"], 
+        history = self_history, 
+        context = read_history
+    )
+    
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model": PARAMS["MODEL"]
+    }
+    headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
+    
+    try:
+        r = requests.post(PARAMS["API_URL"], headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        content = r.json()["choices"][0]["message"]["content"]
+        #content = "I like cats."
+    except Exception:
+        return "ERROR. But I like cats."  # for _generate_post
+    
+    return content
+
+
+def _like_decision_LLM(agent, current_timestep, POSTS, post, PARAMS, debug=False):
+    if debug:
+        return np.random.rand() < 0.5
+    
+    prompt = agent["likes_with_history"].format(
+        identity=agent["identity"], 
+        # (agent, current_timestep, POSTS, memory = self_memory)
+        history=_build_history_of_written_posts(agent, current_timestep, POSTS, memory=10), 
+        message=post
+    )
+    
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model": PARAMS["MODEL"]
+    }
+    headers = {"Authorization": f"Bearer {PARAMS['HF_TOKEN']}"}
+    
+    try:
+        r = requests.post(PARAMS["API_URL"], headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        content = r.json()["choices"][0]["message"]["content"]
+        #content = "5"
+    except Exception:
+        return np.random.rand() < 0.5  # for _like_decision
+    
+    return np.random.rand() < _extract_number(content) / 9
 
 
 
@@ -99,35 +156,6 @@ def _build_history_of_written_posts(agent, current_timestep, POSTS, memory=10, m
 
 
 
-def _generate_post_LLM(agent, current_timestep, POSTS, debug = False, self_memory = 10, read_memory = 5):
-    if debug:
-        return "just a test post"
-    
-    self_history = _build_history_of_written_posts(agent, current_timestep, POSTS, memory = self_memory)
-    read_history = _build_history_of_recent_reads(agent, current_timestep, POSTS, memory = read_memory)
-    prompt = agent["post_generation"].format(
-        identity = agent["identity"], 
-        history = self_history, 
-        context = read_history
-    )
-    
-    payload = {
-        "messages": [{"role": "user", "content": prompt}],
-        "model": MODEL
-    }
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    
-    #response = requests.post(API_URL, headers=headers, json=payload)
-    
-    #content = response.json()["choices"][0]["message"]["content"]
-    try:
-        r = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-        r.raise_for_status()
-        content = r.json()["choices"][0]["message"]["content"]
-    except Exception:
-        return "ERROR. But I like cats."  # for _generate_post
-    
-    return content
 
 def _extract_number(response):
     s = response.strip()
@@ -135,30 +163,3 @@ def _extract_number(response):
         return min(max(int(s[0]), 0), 9)
     return 5
 
-def _like_decision_LLM(agent, current_timestep, POSTS, post, debug=False):
-    if debug:
-        return np.random.rand() < 0.5
-    
-    prompt = agent["likes_with_history"].format(
-        identity=agent["identity"], 
-        # (agent, current_timestep, POSTS, memory = self_memory)
-        history=_build_history_of_written_posts(agent, current_timestep, POSTS, memory=10), 
-        message=post
-    )
-    
-    payload = {
-        "messages": [{"role": "user", "content": prompt}],
-        "model": MODEL
-    }
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    
-    #response = requests.post(API_URL, headers=headers, json=payload)
-    #content = response.json()["choices"][0]["message"]["content"]
-    try:
-        r = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-        r.raise_for_status()
-        content = r.json()["choices"][0]["message"]["content"]
-    except Exception:
-        return np.random.rand() < 0.5  # for _like_decision
-    
-    return np.random.rand() < _extract_number(content) / 9

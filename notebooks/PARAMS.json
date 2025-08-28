@@ -6,6 +6,8 @@
   "seed": null,
   "opinion_model": "LLM",
   "self_memory": 10,
-  "debug": false
+  "debug": false,
+  "rewiring_p": 0.05,
+  "post_read_per_round": 2
 
 } 
