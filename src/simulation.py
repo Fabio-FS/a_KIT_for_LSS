@@ -11,28 +11,40 @@ from src.interfaces import initialize_agents, thermalize_system, evaluate_likes,
 
 async def run_simulation(PARAMS):
 
-    G, WEIGHTS, READ_MATRIX, LIKES = _initialize_everything(PARAMS)
-    initialize_agents(G, PARAMS)                                            # dispatch to interfaces.py
-    POSTS = await thermalize_system(G, PARAMS)                       # dispatch to interfaces.py
+    List_of_WEIGHTS = []
+    List_of_READ_MATRIX = []
+    List_of_LIKES = []
+    List_of_POSTS = []
 
-    for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
-        G["T_current"] = i
-        print(f"T_current: {G['T_current']}")
+    for replica in range(PARAMS["replicas"]):
+
+        G, WEIGHTS, READ_MATRIX, LIKES = _initialize_everything(PARAMS)
+        initialize_agents(G, PARAMS)                                            # dispatch to interfaces.py
+        POSTS = await thermalize_system(G, PARAMS)                       # dispatch to interfaces.py
+
+        for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
+            G["T_current"] = i
+            print(f"T_current: {G['T_current']}")
+            
+            WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2)
+
+            # here there is the part where agents reads posts and decide what to like.
+            decision, coords = await evaluate_likes(G, TOP_POSTS, POSTS, PARAMS) # dispatch to interfaces.py
+            _update_likes_and_consequences(G, LIKES, decision, coords)
+            
+            await generate_posts(G, POSTS, PARAMS) # dispatch to interfaces.py
+
+
+        # Clean up session
+        await close_session_if_any()
+
+        List_of_WEIGHTS.append(WEIGHTS)
+        List_of_READ_MATRIX.append(READ_MATRIX)
+        List_of_LIKES.append(LIKES)
+        List_of_POSTS.append(POSTS)
+
         
-        WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2)
-
-        # here there is the part where agents reads posts and decide what to like.
-        decision, coords = await evaluate_likes(G, TOP_POSTS, POSTS, PARAMS) # dispatch to interfaces.py
-        _update_likes_and_consequences(G, LIKES, decision, coords)
-        
-        await generate_posts(G, POSTS, PARAMS) # dispatch to interfaces.py
-
-
-    # Clean up session
-    await close_session_if_any()
-
-
-    return G, POSTS, WEIGHTS, READ_MATRIX, LIKES
+    return List_of_WEIGHTS, List_of_READ_MATRIX, List_of_LIKES, List_of_POSTS
 
 
 
