@@ -15,6 +15,22 @@ def _flatten_posts(POSTS):
             if s:
                 yield (agent_id, t, s)
 
+def _filter_sensitive_params(params):
+    """Remove sensitive keys from params dict before saving."""
+    sensitive_keys = {
+        'hf_token', 'huggingface_token', 'api_key', 'token', 
+        'password', 'secret', 'key', 'auth'
+    }
+    
+    filtered = {}
+    for k, v in params.items():
+        key_lower = k.lower()
+        if any(sensitive in key_lower for sensitive in sensitive_keys):
+            filtered[k] = "[REDACTED]"
+        else:
+            filtered[k] = v
+    return filtered
+
 def save_replicas_raw(
     out_root: str,
     List_of_WEIGHTS,
@@ -28,6 +44,9 @@ def save_replicas_raw(
     run_id = str(uuid.uuid4())
     saved_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
+    # Filter sensitive data from params
+    safe_params = _filter_sensitive_params(PARAMS)
+
     R = len(List_of_POSTS)
     manifest = {
         "run_id": run_id,
@@ -35,7 +54,7 @@ def save_replicas_raw(
         "replicas": R,
         "out_root": out_root,
         "files": [],
-        "params": PARAMS,
+        "params": safe_params,
     }
     if extra_meta:
         manifest["extra_meta"] = extra_meta
@@ -70,7 +89,7 @@ def save_replicas_raw(
                     "run_id": run_id,
                     "replica": r,
                     "saved_at": saved_at,
-                    "params": PARAMS,
+                    "params": safe_params,
                     "shapes": {
                         "WEIGHTS": list(np.shape(List_of_WEIGHTS[r])),
                         "READ_MATRIX": list(np.shape(List_of_READ_MATRIX[r])),
@@ -90,10 +109,6 @@ def save_replicas_raw(
 
     with open(os.path.join(out_root, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
-
-
-
-
 
 def load_manifest(out_root: str):
     """Load the top-level manifest.json."""
