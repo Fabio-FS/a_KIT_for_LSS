@@ -1,7 +1,7 @@
 {
-  "num_agents": 32,
+  "num_agents": 16,
   "neighbors": 4,
-  "timesteps": 100,
+  "timesteps": 10,
   "fill_history": 3,
   "seed": null,
   "opinion_model": "LLM",

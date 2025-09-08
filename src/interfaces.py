@@ -1,33 +1,62 @@
-from agent_LLM import _generate_post_LLM, _generate_like_LLM, _generate_post_warmup_LLM, _initialize_agents_LLM
-from agent_LLM import _generate_prompt_post_LLM, _generate_prompt_warmup_LLM, _generate_prompt_like_LLM
-# if more opinion models are added, add them here and have agent_BCM, agent_LLM, ... each of them needs to implement the same interface
-
+import numpy as np
+import igraph as ig
+import asyncio
 import aiohttp
 
-def _generate_post(agent, timestep, POSTS, PARAMS):
-    if PARAMS["opinion_model"] == "LLM":
-        return _generate_prompt_post_LLM(agent, timestep, POSTS, PARAMS)
-    else:
-        print("unknown opinion model")
-        exit()
 
-def _like_decision(agent, timestep, POSTS, post, PARAMS):
-    if PARAMS["opinion_model"] == "LLM":
-        return _generate_prompt_like_LLM(agent, timestep, POSTS, post, PARAMS)
-    else:
-        print("unknown opinion model")
-        exit()
+# from agent_LLM import _generate_prompt_post_LLM, _generate_prompt_like_LLM, _generate_prompt_history_LLM
+# from agent_BCM import compute_post_BCM, compute_history_BCM, compute_like_decision_BCM
+# if more opinion models are added, add them here and have agent_BCM, agent_LLM, ... each of them needs to implement the same interface
 
-def _generate_post_warmup(agent, timestep, POSTS, PARAMS):
-    if PARAMS["opinion_model"] == "LLM":
-        return _generate_prompt_warmup_LLM(agent, timestep, POSTS, PARAMS)
-    else:
-        print("unknown opinion model")
-        exit()
 
-def _initialize_agents(G, PARAMS):
-    if PARAMS["opinion_model"] == "LLM":
-        _initialize_agents_LLM(G, PARAMS)
+
+
+from src.models import get_model
+import inspect
+
+
+
+def initialize_agents(G, PARAMS):
+    model = get_model(PARAMS["opinion_model"])
+    func = model.initialize_agents      
+    return func(G, PARAMS)
+async def thermalize_system(G, PARAMS):
+    model = get_model(PARAMS["opinion_model"])
+    func = model.thermalize_system
+    if inspect.iscoroutinefunction(func):
+        return await func(G, PARAMS)
     else:
-        print("unknown opinion model")
-        exit()
+        return func(G, PARAMS)
+
+async def evaluate_likes(G, TOP_POSTS, POSTS, PARAMS):
+    model = get_model(PARAMS["opinion_model"])
+    func = model.evaluate_likes
+    if inspect.iscoroutinefunction(func):
+        return await func(G, TOP_POSTS, POSTS, PARAMS)
+    else:
+        return func(G, TOP_POSTS, POSTS, PARAMS)
+
+async def generate_posts(G, POSTS, PARAMS):
+    model = get_model(PARAMS["opinion_model"])
+    func = model.generate_posts
+    if inspect.iscoroutinefunction(func):
+        return await func(G, POSTS, PARAMS)
+    else:
+        return func(G, POSTS, PARAMS)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
