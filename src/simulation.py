@@ -118,6 +118,7 @@ def _matrix_operations(G, read_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
     _update_read_list(G, TOP_POSTS)
 
     return WEIGHTS, TOP_POSTS, READ_MATRIX
+
 def _calculate_weights(G, read_MATRIX, LIKES, PARAMS):
     max_degree = np.max(np.array(G.degree()))
     num_agents = len(G.vs)
