@@ -31,20 +31,65 @@ def _filter_sensitive_params(params):
             filtered[k] = v
     return filtered
 
-def save_replicas_raw(
-    out_root: str,
-    List_of_WEIGHTS,
-    List_of_READ_MATRIX,
-    List_of_LIKES,
-    List_of_POSTS,
-    PARAMS: dict,
-    extra_meta: dict | None = None,
-):
+
+def save_graphs_data(List_of_GRAPHS, out_root):
+    """Save essential graph data as JSON files."""
+    
+    for r, G in enumerate(List_of_GRAPHS):
+        rdir = os.path.join(out_root, f"r{r:03d}")
+        os.makedirs(rdir, exist_ok=True)
+        
+        # Extract read history for each agent
+        read_history = []
+        for agent in G.vs:
+            agent_reads = agent["read_history"].tolist()
+            read_history.append(agent_reads)
+        
+        # Extract other useful agent data
+        agent_data = []
+        for agent in G.vs:
+            agent_info = {
+                "name": agent["name"],
+                "neighbors": agent["neighbors"].tolist(),
+                "success": agent["success"],
+                "openness": agent["openness"],
+                "conscientiousness": agent["conscientiousness"], 
+                "extraversion": agent["extraversion"],
+                "agreeableness": agent["agreeableness"],
+                "neuroticism": agent["neuroticism"],
+                "economic_left_right": agent["economic_left_right"],
+                "social_conservative_liberal": agent["social_conservative_liberal"]
+            }
+            agent_data.append(agent_info)
+        
+        # Graph metadata
+        graph_data = {
+            "T_total": G["T_total"],
+            "T_current": G["T_current"],
+            "fill_history": G["fill_history"],
+            "read_history": read_history,
+            "agents": agent_data
+        }
+        
+        with open(os.path.join(rdir, "graph_data.json"), "w", encoding="utf-8") as f:
+            json.dump(graph_data, f, ensure_ascii=False, indent=2)
+
+def save_simulation_results(out_root, List_of_WEIGHTS, List_of_READ_MATRIX, 
+                           List_of_LIKES, List_of_POSTS, List_of_GRAPHS, 
+                           List_of_INDIVIDUAL_LIKES, PARAMS):
+    
+    save_replicas_raw(out_root, List_of_WEIGHTS, List_of_READ_MATRIX, 
+                     List_of_LIKES, List_of_POSTS, List_of_INDIVIDUAL_LIKES, PARAMS)
+    
+    save_graphs_data(List_of_GRAPHS, out_root)
+
+def save_replicas_raw(out_root, List_of_WEIGHTS, List_of_READ_MATRIX, 
+                     List_of_LIKES, List_of_POSTS, List_of_INDIVIDUAL_LIKES, 
+                     PARAMS, extra_meta=None):
+    
     os.makedirs(out_root, exist_ok=True)
     run_id = str(uuid.uuid4())
     saved_at = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    # Filter sensitive data from params
     safe_params = _filter_sensitive_params(PARAMS)
 
     R = len(List_of_POSTS)
@@ -63,12 +108,13 @@ def save_replicas_raw(
         rdir = os.path.join(out_root, f"r{r:03d}")
         os.makedirs(rdir, exist_ok=True)
 
-        # arrays
+        # arrays - now includes INDIVIDUAL_LIKES
         np.savez_compressed(
             os.path.join(rdir, "arrays.npz"),
             WEIGHTS=List_of_WEIGHTS[r],
             READ_MATRIX=List_of_READ_MATRIX[r],
-            LIKES=List_of_LIKES[r],
+            LIKES=List_of_LIKES[r],  # Keep old format
+            INDIVIDUAL_LIKES=List_of_INDIVIDUAL_LIKES[r],  # Add new format
         )
 
         # posts
@@ -115,19 +161,12 @@ def load_manifest(out_root: str):
     with open(os.path.join(out_root, "manifest.json"), "r", encoding="utf-8") as f:
         return json.load(f)
 
-def load_replica(replica_dir: str):
-    """
-    Load one replica folder (e.g. runs/2025-09-08_exp1/r000).
-    Returns a dict with arrays, posts, and meta.
-    """
-    # arrays
+def load_replica(replica_dir):
     arrays = np.load(os.path.join(replica_dir, "arrays.npz"), allow_pickle=True)
     
-    # meta
     with open(os.path.join(replica_dir, "meta.json"), "r", encoding="utf-8") as f:
         meta = json.load(f)
 
-    # posts
     posts = []
     posts_csv = os.path.join(replica_dir, "posts.csv")
     if os.path.exists(posts_csv):
@@ -139,7 +178,38 @@ def load_replica(replica_dir: str):
     return {
         "WEIGHTS": arrays["WEIGHTS"],
         "READ_MATRIX": arrays["READ_MATRIX"],
-        "LIKES": arrays["LIKES"],
+        "LIKES": arrays["LIKES"],  # Old format still available
+        "INDIVIDUAL_LIKES": arrays["INDIVIDUAL_LIKES"],  # New format available
         "POSTS_long": posts,
         "meta": meta,
     }
+
+
+def show_discussion_from_saved(posts_data, graph_data, agent_id, max_timesteps=5):
+    print(f"=== DISCUSSION FOR AGENT {agent_id} ===\n")
+    
+    read_history = graph_data["read_history"][agent_id]
+    agent_name = graph_data["agents"][agent_id]["name"]
+    
+    for t in range(min(max_timesteps, len(read_history))):
+        print(f"--- TIMESTEP {t} ({agent_name}) ---")
+        
+        # Show what they read
+        reads = read_history[t]
+        print("READ:")
+        for author_id, post_t in reads:
+            if author_id != -1 and post_t != -1:
+                # Find the post in your loaded posts data
+                for post_row in posts_data:
+                    if post_row[0] == author_id and post_row[1] == post_t:
+                        author_name = graph_data["agents"][author_id]["name"]
+                        print(f"  {author_name} (t={post_t}): {post_row[2]}")
+                        break
+        
+        # Show what they wrote
+        for post_row in posts_data:
+            if post_row[0] == agent_id and post_row[1] == t:
+                print(f"WROTE: {post_row[2]}")
+                break
+        
+        print()

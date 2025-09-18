@@ -1,19 +1,26 @@
 identity_for_warmup: |
-  you are a social media user.
-  You have {left_right} political views.
-  These is your first post. Please write about something you care about.
-  Keep your post short. No more than 2 statements. 250 characters max.
+  {persona}
+  NEVER BREAK CHARACTER. Remain the person who you are.
+  
+  Write your first post about {topic}.
+  - Write only your genuine opinion, not a response to others
+  - Keep it under 250 characters
+  - Do NOT mention other users
+  - Write as a standalone post, not a reply
 
 identity_for_likes: |
-  you are a social media user.
-  You have {left_right} political views.
-  You will be reading messages from other users, and deciding if you like them or not.
-  Your decision is based on your persona, and on your previous messages.
-  Always answer with a single number between 0 (you hate it) to 9 (you love it).
-
+  {persona}
+  
+  Shortly explain what your persona thinks about the message. 
+  Then rate how much you like this message from 0 (hate it) to 9 (love it).
+  Base your rating on how well the message aligns with your personality and viewpoints.
+  ALWAYS include a number between 0 and 9.
+  
 identity_for_posts: |
-  you are a social media user.
-  You have {left_right} political views.
-  You will be reading messages from other users, and writing your own message.
-  Your message is based on your persona, on your previous messages, and on the messages you are reading.
-  Keep your message short. No more than 2 statements. 250 characters max.
+  {persona}
+  NEVER BREAK CHARACTER. Remain the person who wrote that.
+  
+  You are discussing {topic}.
+  
+  Write a post based on the conversation below.
+  If some of the comments of your neighbors are interesting, answer and reference them.

@@ -1,21 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=lss-onejob
-#SBATCH --partition=dev_gpu_h100
+#SBATCH --partition=gpu_a100_short
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=00:30:00
+#SBATCH --time=00:10:00
 #SBATCH --output=%x-%j.out
 #SBATCH -A ka
 
 set -euo pipefail
-
-# --- Model Selection (Change this line to switch models) ---
-MODEL_NAME="google/gemma-3-27b-it"
-# MODEL_NAME="meta-llama/Llama-3.1-8B-Instruct"
-# MODEL_NAME="google/gemma-2-9b-it"
-
-export MODEL_NAME="$MODEL_NAME"
 
 # --- Conda ---
 source /opt/bwhpc/common/devel/miniforge/24.11.0-py3.12/etc/profile.d/conda.sh
@@ -35,18 +28,17 @@ if [[ -n "${TMPDIR:-}" ]]; then
   export TRANSFORMERS_CACHE="$TMPDIR/hf"
 fi
 
-# --- Locate local snapshot of selected model ---
+# --- Locate a local snapshot of Llama 3.1 8B (workspace first, then common fallbacks) ---
 MODEL_SNAPSHOT_DIR="$(
 python3 - <<'PY'
 import os, glob
-model_name = os.environ.get("MODEL_NAME", "").replace("/", "--")
 cands = []
 env_hf = os.environ.get("HF_HOME","")
 if env_hf:
-    cands.append(os.path.join(env_hf, "hub", f"models--{model_name}", "snapshots", "*"))
+    cands.append(os.path.join(env_hf, "hub", "models--meta-llama--Llama-3.1-8B-Instruct", "snapshots", "*"))
 # fallbacks: user caches
 home = os.path.expanduser("~")
-cands.append(os.path.join(home, ".cache", "huggingface", "hub", f"models--{model_name}", "snapshots", "*"))
+cands.append(os.path.join(home, ".cache", "huggingface", "hub", "models--meta-llama--Llama-3.1-8B-Instruct", "snapshots", "*"))
 for pat in cands:
     snaps = sorted(glob.glob(pat), key=os.path.getmtime, reverse=True)
     if snaps:
@@ -56,17 +48,16 @@ PY
 )"
 
 if [[ -z "${MODEL_SNAPSHOT_DIR}" || ! -d "${MODEL_SNAPSHOT_DIR}" ]]; then
-  echo "ERROR: No local snapshot for ${MODEL_NAME} found."
+  echo "ERROR: No local snapshot for meta-llama/Llama-3.1-8B-Instruct found."
   echo "Searched:"
-  echo "  $HF_HOME/hub/models--$(echo $MODEL_NAME | tr '/' '-')/snapshots/*"
-  echo "  $HOME/.cache/huggingface/hub/models--$(echo $MODEL_NAME | tr '/' '-')/snapshots/*"
+  echo "  $HF_HOME/hub/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/*"
+  echo "  $HOME/.cache/huggingface/hub/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/*"
   echo "List of $HF_HOME/hub (for debugging):"
   ls -al "$HF_HOME/hub" || true
   exit 1
 fi
 
 echo "Using local model snapshot: $MODEL_SNAPSHOT_DIR"
-echo "Model: $MODEL_NAME"
 
 # --- vLLM ---
 PORT=8000
@@ -102,6 +93,7 @@ done
 export API_URL="http://127.0.0.1:${PORT}/v1/chat/completions"
 export MODEL="${MODEL_SNAPSHOT_DIR}"
 export HF_TOKEN=
+
 export RUN_ROOT="$PWD/runs"
 mkdir -p "$RUN_ROOT"
 

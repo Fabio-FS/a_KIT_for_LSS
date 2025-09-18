@@ -10,49 +10,47 @@ from src.interfaces import initialize_agents, thermalize_system, evaluate_likes,
 
 
 async def run_simulation(PARAMS):
-
     List_of_WEIGHTS = []
     List_of_READ_MATRIX = []
     List_of_LIKES = []
     List_of_POSTS = []
+    List_of_GRAPHS = []
+    List_of_INDIVIDUAL_LIKES = []  # Add this new list
 
     for replica in range(PARAMS["replicas"]):
-
-        G, WEIGHTS, READ_MATRIX, LIKES = _initialize_everything(PARAMS)
-        initialize_agents(G, PARAMS)                                            # dispatch to interfaces.py
-        POSTS = await thermalize_system(G, PARAMS)                       # dispatch to interfaces.py
+        G, WEIGHTS, READ_MATRIX, LIKES, INDIVIDUAL_LIKES = _initialize_everything(PARAMS)
+        await initialize_agents(G, PARAMS)
+        POSTS = await thermalize_system(G, PARAMS)
 
         for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
             G["T_current"] = i
             print(f"T_current: {G['T_current']}")
             
-            WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2)
-
-            # here there is the part where agents reads posts and decide what to like.
-            decision, coords = await evaluate_likes(G, TOP_POSTS, POSTS, PARAMS) # dispatch to interfaces.py
-            _update_likes_and_consequences(G, LIKES, decision, coords)
+            WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k=2)
             
-            await generate_posts(G, POSTS, PARAMS) # dispatch to interfaces.py
+            decision, coords = await evaluate_likes(G, TOP_POSTS, POSTS, PARAMS)
+            _update_likes_and_consequences(G, LIKES, INDIVIDUAL_LIKES, decision, coords)
+            
+            await generate_posts(G, POSTS, PARAMS)
 
-
-        # Clean up session
         await close_session_if_any()
 
         List_of_WEIGHTS.append(WEIGHTS)
         List_of_READ_MATRIX.append(READ_MATRIX)
         List_of_LIKES.append(LIKES)
         List_of_POSTS.append(POSTS)
+        List_of_GRAPHS.append(G)
+        List_of_INDIVIDUAL_LIKES.append(INDIVIDUAL_LIKES)  # Add this
 
-        
-    return List_of_WEIGHTS, List_of_READ_MATRIX, List_of_LIKES, List_of_POSTS
+    return List_of_WEIGHTS, List_of_READ_MATRIX, List_of_LIKES, List_of_POSTS, List_of_GRAPHS, List_of_INDIVIDUAL_LIKES
 
 
 
 def _initialize_everything(PARAMS):
     np.random.seed(42 if PARAMS.get("seed") is None else PARAMS["seed"])
     G = generate_network(PARAMS)
-    WEIGHTS, READ_MATRIX, LIKES = _initialize_matrices(G, PARAMS)
-    return G, WEIGHTS, READ_MATRIX, LIKES
+    WEIGHTS, READ_MATRIX, LIKES, INDIVIDUAL_LIKES = _initialize_matrices(G, PARAMS)
+    return G, WEIGHTS, READ_MATRIX, LIKES, INDIVIDUAL_LIKES
 def generate_network(PARAMS):
     N = PARAMS["num_agents"]
     neighbors = PARAMS["neighbors"]
@@ -99,15 +97,17 @@ def _build_neighbor_lookups(G):
 def _initialize_matrices(G, PARAMS):
     max_degree = np.max(np.array(G.degree()))
     num_agents = len(G.vs)
-
-    #POSTS = initialize_posts(G, PARAMS)             # dispatched to interfaces.py
     
-    READ_MATRIX = np.zeros((num_agents, G["T_total"], max_degree), dtype=float)
+    read_MATRIX = np.zeros((num_agents, G["T_total"], max_degree), dtype=float)
     WEIGHTS = np.zeros((num_agents, G["T_total"], max_degree), dtype=float)
-    LIKES = np.zeros((num_agents, G["T_total"]), dtype=float)
-
     
-    return WEIGHTS, READ_MATRIX, LIKES
+    # Keep the old LIKES matrix (unchanged)
+    LIKES = np.zeros((num_agents, G["T_total"]), dtype=float)
+    
+    # Add new individual likes tracking
+    INDIVIDUAL_LIKES = np.zeros((num_agents, num_agents, G["T_total"]), dtype=bool)
+    
+    return WEIGHTS, read_MATRIX, LIKES, INDIVIDUAL_LIKES
 
 
 
@@ -180,16 +180,21 @@ def _update_personal_weights(G, WEIGHTS, W_personal_weights):
         
         multipliers = 1 + preferences * W_personal_weights
         WEIGHTS[neighbor_ids, :, lookout_positions] *= multipliers[:, np.newaxis]
-def _update_likes_and_consequences(G, LIKES, decisions, coordinates):
+def _update_likes_and_consequences(G, LIKES, INDIVIDUAL_LIKES, decisions, coordinates):
     for i, decision in enumerate(decisions):
         if decision:
             reader_id, sender_id, timestep = coordinates[i]
+            
+            # Keep old logic (unchanged)
             LIKES[sender_id, timestep] += 1
             G.vs[sender_id]["success"] += 1
             
             reader = G.vs[reader_id]
             position = np.where(reader["neighbors"] == sender_id)[0]
             reader["preferred_neighbors"][position] += 1
+            
+            # Add new individual tracking
+            INDIVIDUAL_LIKES[reader_id, sender_id, timestep] = True
 def _find_top_k_posts(G, WEIGHTS, k=5):
     num_agents = len(G.vs)
     top_posts = np.full((num_agents, k, 2), -1, dtype=int)

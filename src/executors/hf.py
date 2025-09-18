@@ -37,7 +37,7 @@ def _digit_to_prob(s: str) -> float:
             if d > 9:
                 d = 9
             return d / 9.0
-    return 0.5
+    raise ValueError(f"No digit found in string: '{s}'")
 
 
 async def execute_prompts_parallel(
@@ -45,7 +45,7 @@ async def execute_prompts_parallel(
     PARAMS: dict,
     *,
     max_tokens: int = 1,
-    temperature: float = 0.9,
+    temperature: float = 1.2,
     parse: str | None = "digit_to_prob",
     timeout: float = 60.0,
     retries: int = 2,
@@ -79,8 +79,8 @@ async def execute_prompts_parallel(
     np.ndarray[float] if parse == "digit_to_prob", else list[str].
     """
     if not prompts:
-        return np.array([], dtype=float) if parse == "digit_to_prob" else []
-
+        raise ValueError("no prompts")
+        
     session = await get_session()
     api_url = PARAMS["API_URL"]
     model = PARAMS["MODEL"]
@@ -126,6 +126,8 @@ async def execute_prompts_parallel(
                                 headers=resp.headers,
                             )
                         data = await resp.json()
+                        #print(f"DEBUG - Full API response: {data}")  # Add this line
+                        #scontent = data["choices"][0]["message"]["content"]
 
                 content = data["choices"][0]["message"]["content"]
                 if parse == "digit_to_prob":
@@ -133,14 +135,10 @@ async def execute_prompts_parallel(
                 else:
                     return idx, str(content)
 
-            except Exception:
+            except Exception as e:
                 if attempt > retries:
-                    # Final fallback
-                    if parse == "digit_to_prob":
-                        return idx, 0.5
-                    else:
-                        return idx, "ERROR"
-
+                    raise Exception(f"API call failed after {retries} retries for prompt {idx}: {e}")
+                
                 # small exponential backoff
                 await asyncio.sleep(0.05 * attempt)
 
