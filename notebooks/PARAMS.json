@@ -1,14 +1,13 @@
 {
-  "replicas": 1,
-  "num_agents": 16,
+  "replicas": 5,
+  "num_agents": 50,
   "neighbors": 4,
   "timesteps": 10,
-  "fill_history": 3,
+  "warmup_length": 3,
   "seed": null,
   "opinion_model": "LLM",
-  "self_memory": 10,
   "debug": false,
   "rewiring_p": 0.05,
   "post_read_per_round": 2,
-  "topic": "universal healthcare"
-} 
+  "topic": "war in Ukraine"
+}

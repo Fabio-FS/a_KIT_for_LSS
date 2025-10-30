@@ -18,11 +18,13 @@ async def run_simulation(PARAMS):
     List_of_INDIVIDUAL_LIKES = []  # Add this new list
 
     for replica in range(PARAMS["replicas"]):
+    
         G, WEIGHTS, READ_MATRIX, LIKES, INDIVIDUAL_LIKES = _initialize_everything(PARAMS)
         await initialize_agents(G, PARAMS)
         POSTS = await thermalize_system(G, PARAMS)
 
-        for i in range(PARAMS["fill_history"], PARAMS["fill_history"] + PARAMS["timesteps"]):
+        for i in range(PARAMS["warmup_length"], PARAMS["warmup_length"] + PARAMS["timesteps"]):
+            print(i, replica)
             G["T_current"] = i
             print(f"T_current: {G['T_current']}")
             
@@ -55,14 +57,14 @@ def generate_network(PARAMS):
     N = PARAMS["num_agents"]
     neighbors = PARAMS["neighbors"]
     timesteps = PARAMS["timesteps"]
-    fill_history = PARAMS["fill_history"]
+    warmup_length = PARAMS["warmup_length"]
     post_read_per_round = PARAMS["post_read_per_round"]
     rewiring_p = PARAMS["rewiring_p"]
     G = ig.Graph.Watts_Strogatz(dim=1, size=N, nei=neighbors, p=rewiring_p)
 
-    G["T_total"] = timesteps + fill_history
+    G["T_total"] = timesteps + warmup_length
     G["T_current"] = 0
-    G["fill_history"] = fill_history
+    G["warmup_length"] = warmup_length
 
     for agent in G.vs:
         agent["neighbors"] = np.array([neighbor.index for neighbor in agent.neighbors()])
@@ -122,7 +124,7 @@ def _matrix_operations(G, read_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
 def _calculate_weights(G, read_MATRIX, LIKES, PARAMS):
     max_degree = np.max(np.array(G.degree()))
     num_agents = len(G.vs)
-    fill_history = G["fill_history"]
+    warmup_length = G["warmup_length"]
     WEIGHTS = np.ones((num_agents, G["T_total"], max_degree))
     
     if PARAMS["time_decay_rate"] > 0:

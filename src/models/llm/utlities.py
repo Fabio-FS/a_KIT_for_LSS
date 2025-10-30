@@ -19,66 +19,112 @@ def _load_prompt_yaml(field_name: str) -> str:
         raise KeyError(f"Missing prompt: {field_name}")
     return data[field_name]
 
-
-
-
-
 def _compose_prompt_for_warmup(agent, t, POSTS):
-    persona = agent["persona"]
-    topic = agent["topic"]
+    """
+    First-post prompt:
+      - System: agent["warmup"] (persona + stable rules)
+      - User: minimal TASK + strict output contract
+    """
+    PROMPT = [{"role": "system", "content": agent["warmup"]}]
 
-    prompt = [{"role": "system",
-               "content": _load_prompt_yaml("identity_for_warmup").format(persona=persona, topic=topic)}]
-    prompt.append({"role": "user", "content": "Please write your post"})
-    return prompt
+    user_msg = (
+        "CONTEXT START\n"
+        "This is your first post. You have not read any messages yet.\n\n"
+        "TASK:\nWrite your first post about the war in Ukraine. "
+        "Do NOT reply to anyone. Keep it ≤ 3 sentences.\n\n"
+        "OUTPUT FORMAT (STRICT):\nReturn ONLY the post text (no quotes, no preface).\n"
+        "CONTEXT END"
+    )
+
+    PROMPT.append({"role": "user", "content": user_msg})
+    return PROMPT
     
 def _compose_prompt_for_likes(agent, t, POSTS, coord, memory=10):
-    persona = agent["persona"]
+    
 
-    system_msg = _load_prompt_yaml("identity_for_likes").format(persona=persona)
-    PROMPT = [{"role": "system", "content": system_msg}]
+    PROMPT = [{"role": "system", "content": agent["likes"]}]
 
+    # Collect the agent's recent posts (memory window)
     start = max(0, t - memory)
+    recent_posts = []
     for i in range(start, t):
         post = POSTS[agent.index][i]
         if post:
-            PROMPT.append({"role": "assistant", "content": str(post).strip()})
+            recent_posts.append(post.strip())
 
+    # Target message to evaluate
     _, author_id, post_t = coord
     target_post = POSTS[author_id][post_t]
-    PROMPT.append({"role": "user", "content": f"now evaluate this message: {target_post}"})
+    target_text = str(target_post).strip() if target_post else "[EMPTY POST]"
 
+    # Build the structured user message
+    history_block = "\n".join(f"you: {p}" for p in recent_posts) or "(no prior posts)"
+    user_msg = (
+        "CONTEXT START\n"
+        f"YOUR RECENT POSTS:\n{history_block}\n\n"
+        f"MESSAGE TO RATE:\n@{author_id}: {target_text}\n\n"
+        "TASK:\nEvaluate how much you like this message given your personality and past posts.\n\n"
+        "OUTPUT FORMAT (STRICT):\nRATING=<0-9>\n"
+        "CONTEXT END"
+    )
+
+    PROMPT.append({"role": "user", "content": user_msg})
     return PROMPT
 
 def _compose_prompt_for_posts(G, agent, t, POSTS, memory=10):
-    persona = agent["persona"]
-    topic = agent["topic"]
-        
-    sys_text = _load_prompt_yaml("identity_for_posts").format(persona=persona, topic=topic)
-    PROMPT = [{"role": "system", "content": sys_text}]
+    """
+    Build a structured posting prompt.
+
+    - System message: agent["posts"]  (already formatted from prompts.yaml)
+    - User message: READ_HISTORY + YOUR_PREVIOUS_POSTS + TASK + strict output contract
+    - Returns (PROMPT, coord) where coord = [agent_id, t]
+    """
+    # System: persona + stable rules (already in agent["posts"])
+    PROMPT = [{"role": "system", "content": agent["posts"]}]
 
     names = G.vs["name"]
     me = agent.index
     start = max(0, t - memory)
+
+    # READ_HISTORY (what this agent read from others)
+    read_lines = []
     for i in range(start, t):
         for author_id, post_t in agent["read_history"][i]:
-            if author_id == -1 or post_t == -1: 
+            if author_id == -1 or post_t == -1:
                 continue
             txt = POSTS[author_id][post_t]
-            if not txt: 
+            if not txt:
                 continue
             who = names[author_id]
-            PROMPT.append({"role": "user", "content": f"{who} : {txt.strip()}"})
+            read_lines.append(f"@{who}: {str(txt).strip()}")
 
+    # YOUR_PREVIOUS_POSTS (this agent's own past posts)
+    my_lines = []
+    for i in range(start, t):
         my_txt = POSTS[me][i]
         if my_txt:
-            PROMPT.append({"role": "assistant", "content": my_txt.strip()})
-        coord = [me, t]
-    
-    PROMPT.append({"role": "user", "content": "Write your next post. Return only the post text."})
+            my_lines.append(f"you: {str(my_txt).strip()}")
+
+    read_block = "\n".join(read_lines) if read_lines else "(none)"
+    my_block = "\n".join(my_lines) if my_lines else "(none)"
+
+    # User message with explicit context and tight output contract
+    user_msg = (
+        "CONTEXT START\n"
+        f"READ_HISTORY:\n{read_block}\n\n"
+        f"YOUR_PREVIOUS_POSTS:\n{my_block}\n\n"
+        "TASK:\nWrite your next post NOW. Either reply to one of the above using @username, "
+        "or write a new post if you prefer. Keep it ≤ 3 sentences.\n\n"
+        "OUTPUT FORMAT (STRICT):\n"
+        "Return ONLY the post text (no quotes, no preface).\n"
+        "CONTEXT END"
+    )
+
+    PROMPT.append({"role": "user", "content": user_msg})
+    coord = [me, t]
     return PROMPT, coord
 
-async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128, batch_size=128):
+async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128, batch_size=512, temperature=1.2):
    """
    Execute prompts in batches and return coordinates and texts as separate lists.
    coords3 is the coordinate of the post to be evaluated
@@ -96,16 +142,15 @@ async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128,
            chunk,
            PARAMS,
            max_tokens=max_tokens,
+           temperature=temperature,  # Pass it through
            parse=None
        )
        for text in texts:
-           
            result_coords.append(coords3[write_idx])
            result_texts.append(text)
            write_idx += 1
    
    return result_coords, result_texts
-
 
 
 def print_prompt(prompt):

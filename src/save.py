@@ -52,13 +52,7 @@ def save_graphs_data(List_of_GRAPHS, out_root):
                 "name": agent["name"],
                 "neighbors": agent["neighbors"].tolist(),
                 "success": agent["success"],
-                "openness": agent["openness"],
-                "conscientiousness": agent["conscientiousness"], 
-                "extraversion": agent["extraversion"],
-                "agreeableness": agent["agreeableness"],
-                "neuroticism": agent["neuroticism"],
-                "economic_left_right": agent["economic_left_right"],
-                "social_conservative_liberal": agent["social_conservative_liberal"]
+                "stance" : agent["stance"]
             }
             agent_data.append(agent_info)
         
@@ -66,7 +60,7 @@ def save_graphs_data(List_of_GRAPHS, out_root):
         graph_data = {
             "T_total": G["T_total"],
             "T_current": G["T_current"],
-            "fill_history": G["fill_history"],
+            "warmup_length": G["warmup_length"],
             "read_history": read_history,
             "agents": agent_data
         }
@@ -140,6 +134,7 @@ def save_replicas_raw(out_root, List_of_WEIGHTS, List_of_READ_MATRIX,
                         "WEIGHTS": list(np.shape(List_of_WEIGHTS[r])),
                         "READ_MATRIX": list(np.shape(List_of_READ_MATRIX[r])),
                         "LIKES": list(np.shape(List_of_LIKES[r])),
+                        "INDIVIDUAL_LIKES": list(np.shape(List_of_INDIVIDUAL_LIKES[r])),  # ← add this
                         "POSTS": [posts_num_agents, posts_T],
                     },
                     "files": {"arrays": "arrays.npz", "posts": "posts.csv"},
@@ -187,29 +182,24 @@ def load_replica(replica_dir):
 
 def show_discussion_from_saved(posts_data, graph_data, agent_id, max_timesteps=5):
     print(f"=== DISCUSSION FOR AGENT {agent_id} ===\n")
-    
     read_history = graph_data["read_history"][agent_id]
     agent_name = graph_data["agents"][agent_id]["name"]
-    
+
+    # Build a fast lookup: (author_id, t) -> text
+    posts_lookup = {(a, t): txt for a, t, txt in posts_data}
+
     for t in range(min(max_timesteps, len(read_history))):
         print(f"--- TIMESTEP {t} ({agent_name}) ---")
-        
-        # Show what they read
-        reads = read_history[t]
         print("READ:")
-        for author_id, post_t in reads:
+        for author_id, post_t in read_history[t]:
             if author_id != -1 and post_t != -1:
-                # Find the post in your loaded posts data
-                for post_row in posts_data:
-                    if post_row[0] == author_id and post_row[1] == post_t:
-                        author_name = graph_data["agents"][author_id]["name"]
-                        print(f"  {author_name} (t={post_t}): {post_row[2]}")
-                        break
-        
-        # Show what they wrote
-        for post_row in posts_data:
-            if post_row[0] == agent_id and post_row[1] == t:
-                print(f"WROTE: {post_row[2]}")
-                break
-        
+                txt = posts_lookup.get((author_id, post_t))
+                if txt is not None:
+                    author_name = graph_data["agents"][author_id]["name"]
+                    print(f"  {author_name} (t={post_t}): {txt}")
+
+        # wrote
+        my_txt = posts_lookup.get((agent_id, t))
+        if my_txt is not None:
+            print(f"WROTE: {my_txt}")
         print()

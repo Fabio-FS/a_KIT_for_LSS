@@ -89,7 +89,7 @@ async def execute_prompts_parallel(
 
     # Reasonable default concurrency
     if concurrency is None:
-        concurrency = min(8, max(1, len(prompts)))
+        concurrency = min(64, max(1, len(prompts)))
 
     sem = asyncio.Semaphore(concurrency)
 

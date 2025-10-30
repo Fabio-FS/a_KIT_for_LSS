@@ -1,230 +1,253 @@
 import numpy as np
+import json
+import os
 
 
-def calculate_response_entropy(response):
-    words = response.lower().split()
-    word_counts = {}
-    for word in words:
-        word_counts[word] = word_counts.get(word, 0) + 1
+def load_run(run_path):
+    """Load all data from a saved simulation run."""
+    manifest_path = os.path.join(run_path, "manifest.json")
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
     
-    total_words = len(words)
-    entropy = 0
-    for count in word_counts.values():
-        probability = count / total_words
-        entropy -= probability * np.log2(probability)
-    
-    return entropy
-
-def calculate_lexical_diversity(response):
-    words = response.lower().split()
-    unique_words = set(words)
-    return len(unique_words) / len(words)
-
-def calculate_argument_coherence(response, previous_messages):
-    shared_terms = set()
-    response_words = set(response.lower().split())
-    
-    for message in previous_messages:
-        message_words = set(message.content.lower().split())
-        shared_terms.update(response_words & message_words)
-    
-    return len(shared_terms) / len(response_words)
-
-def calculate_stance_strength(response):
-    strong_words = ['strongly', 'definitely', 'absolutely', 'must', 'need', 'essential']
-    weak_words = ['maybe', 'perhaps', 'might', 'could', 'possibly', 'reconsider']
-    
-    response_lower = response.lower()
-    strong_count = sum(1 for word in strong_words if word in response_lower)
-    weak_count = sum(1 for word in weak_words if word in response_lower)
-    
-    return strong_count - weak_count
-
-def calculate_response_length_ratio(response, previous_messages):
-    avg_previous_length = np.mean([len(msg.content) for msg in previous_messages])
-    return len(response) / avg_previous_length
-
-def analyze_response(response, previous_messages):
-    metrics = {
-        'entropy': calculate_response_entropy(response),
-        'lexical_diversity': calculate_lexical_diversity(response),
-        'coherence': calculate_argument_coherence(response, previous_messages),
-        'stance_strength': calculate_stance_strength(response),
-        'length_ratio': calculate_response_length_ratio(response, previous_messages)
-    }
-    return metrics
-
-
-def calculate_response_specificity(response, previous_messages):
-    # Generic phrases that indicate the model is giving up
-    generic_phrases = [
-        'i think', 'we should', 'it seems', 'perhaps', 'in general',
-        'overall', 'basically', 'essentially', 'clearly', 'obviously',
-        'let\'s', 'we need to', 'important to', 'focus on'
-    ]
-    
-    response_lower = response.lower()
-    generic_count = sum(1 for phrase in generic_phrases if phrase in response_lower)
-    
-    # Specific elements: numbers, proper nouns, quoted facts
-    has_number = any(char.isdigit() for char in response)
-    has_statistic = '%' in response or 'percent' in response.lower()
-    has_country = any(country in response.lower() for country in ['canada', 'uk', 'france', 'taiwan', 'germany'])
-    
-    specificity_score = (has_number + has_statistic + has_country) - generic_count
-    return specificity_score
-
-def calculate_argument_engagement(response, previous_messages):
-    # Does the response reference specific previous arguments?
-    last_3_messages = previous_messages[-3:] if len(previous_messages) >= 3 else previous_messages
-    
-    engagement_count = 0
-    for msg in last_3_messages:
-        # Check if response mentions the speaker's name
-        if msg.sender.lower() in response.lower():
-            engagement_count += 1
-    
-    return engagement_count
-
-def calculate_repetition_from_context(response, previous_messages):
-    # Is the model just repeating what was already said?
-    response_words = set(response.lower().split())
-    
-    all_previous_words = set()
-    for msg in previous_messages:
-        all_previous_words.update(msg.content.lower().split())
-    
-    # What fraction of response is NEW words not seen before?
-    new_words = response_words - all_previous_words
-    
-    if len(response_words) == 0:
-        return 0
-    
-    return len(new_words) / len(response_words)
-
-def calculate_complexity_of_response(response):
-    # Average sentence length (complex thoughts = longer sentences)
-    sentences = response.split('.')
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    if len(sentences) == 0:
-        return 0
-    
-    words_per_sentence = [len(s.split()) for s in sentences]
-    return np.mean(words_per_sentence)
-
-def calculate_emotional_engagement(response):
-    # Strong emotional words indicate the model is still "in character"
-    emotional_words = [
-        'terrible', 'wonderful', 'crucial', 'devastating', 'outrageous',
-        'unconscionable', 'heartbreaking', 'shameful', 'inspiring',
-        'horrifying', 'absurd', 'ridiculous', 'shocking'
-    ]
-    
-    response_lower = response.lower()
-    return sum(1 for word in emotional_words if word in response_lower)
-
-def analyze_response_comprehensive(response, previous_messages):
-    metrics = {
-        'length': len(response),
-        'length_ratio': calculate_response_length_ratio(response, previous_messages),
-        'specificity': calculate_response_specificity(response, previous_messages),
-        'engagement': calculate_argument_engagement(response, previous_messages),
-        'novelty': calculate_repetition_from_context(response, previous_messages),
-        'complexity': calculate_complexity_of_response(response),
-        'emotional': calculate_emotional_engagement(response),
-    }
-    return metrics
-
-
-
-def extract_addressee(response):
-    """
-    Determines who Sarah is addressing in her response.
-    Returns: 'Mike', 'Lisa', 'Tom', 'None', or 'Multiple'
-    """
-    response_lower = response.lower()
-    
-    mentions = {
-        'Mike': 'mike' in response_lower,
-        'Lisa': 'lisa' in response_lower,
-        'Tom': 'tom' in response_lower
-    }
-    
-    mentioned = [name for name, present in mentions.items() if present]
-    
-    if len(mentioned) == 0:
-        return 'None'
-    elif len(mentioned) == 1:
-        return mentioned[0]
-    else:
-        return 'Multiple'
-
-def get_last_speaker(messages):
-    """Returns the name of the last speaker before Sarah responds"""
-    if len(messages) == 0:
-        return None
-    return messages[-1].sender
-
-def get_first_speaker(messages):
-    """Returns the name of the first speaker"""
-    if len(messages) == 0:
-        return None
-    return messages[0].sender
-
-def get_second_speaker(messages):
-    """Returns the name of the second speaker"""
-    if len(messages) < 2:
-        return None
-    return messages[1].sender
-
-def analyze_addressee_pattern(response, messages, names):
-    """
-    Analyzes who Sarah is addressing based on a list of participant names.
-    
-    Parameters:
-    - response: Sarah's response text
-    - messages: list of Message objects
-    - names: list of participant names (e.g., ['Mike', 'Lisa', 'Tom'])
-    
-    Returns dictionary with addressee info and category
-    """
-    addressee = extract_addressee(response)
-    
-    # Build position mapping for each name
-    positions = {}
-    if len(messages) >= 1:
-        positions['Last'] = messages[-1].sender
-    if len(messages) >= 2:
-        positions['Second-to-Last'] = messages[-2].sender
-    if len(messages) >= 3:
-        positions['Third-to-Last'] = messages[-3].sender
-    if len(messages) >= 1:
-        positions['First'] = messages[0].sender
-    if len(messages) >= 2:
-        positions['Second'] = messages[1].sender
-    if len(messages) >= 3:
-        positions['Third'] = messages[2].sender
-    
-    # Determine category
-    if addressee == 'None':
-        category = 'None'
-    elif addressee == 'Multiple':
-        category = 'Multiple'
-    elif addressee not in names:
-        category = 'Other'
-    else:
-        # Check which position this person holds
-        # Priority: Last, Second-to-Last, Third-to-Last, then First, Second, Third
-        category = 'Other'  # default if not found in key positions
+    replicas = []
+    for r in range(manifest["replicas"]):
+        rdir = os.path.join(run_path, f"r{r:03d}")
         
-        for position, speaker in positions.items():
-            if addressee == speaker:
-                category = position
-                break
+        arrays = np.load(os.path.join(rdir, "arrays.npz"), allow_pickle=True)
+        
+        with open(os.path.join(rdir, "graph_data.json"), "r") as f:
+            graph_data = json.load(f)
+        
+        replicas.append({
+            "INDIVIDUAL_LIKES": arrays["INDIVIDUAL_LIKES"],
+            "graph_data": graph_data,
+        })
     
-    return {
-        'addressee': addressee,
-        'category': category,
-        'positions': positions,
+    return replicas, manifest
+
+
+def calculate_exposure_diversity(replica):
+    """
+    Exposure diversity: stance distribution in reads.
+    
+    For each agent at each timestep, compute the entropy of stance distribution
+    in what they read. Higher entropy = more diverse exposure.
+    
+    Returns:
+        diversity_per_agent: shape (num_agents, T_total)
+        diversity_mean: scalar, mean across all agents and timesteps
+    """
+    graph_data = replica["graph_data"]
+    num_agents = len(graph_data["agents"])
+    T_total = graph_data["T_total"]
+    
+    diversity_per_agent = np.zeros((num_agents, T_total))
+    
+    for agent_id in range(num_agents):
+        read_history = graph_data["read_history"][agent_id]
+        
+        for t in range(T_total):
+            reads = read_history[t]
+            
+            stances = []
+            for author_id, post_t in reads:
+                if author_id != -1 and post_t != -1:
+                    stance = graph_data["agents"][author_id]["stance"]
+                    stances.append(stance)
+            
+            if len(stances) == 0:
+                diversity_per_agent[agent_id, t] = 0
+                continue
+            
+            unique, counts = np.unique(stances, return_counts=True)
+            probs = counts / counts.sum()
+            entropy = -np.sum(probs * np.log(probs + 1e-10))
+            diversity_per_agent[agent_id, t] = entropy
+    
+    diversity_mean = diversity_per_agent.mean()
+    
+    return diversity_per_agent, diversity_mean
+
+
+def calculate_echo_chamber_score(replica):
+    """
+    Echo chamber effects: homophily in reading.
+    
+    For each agent, compute the fraction of reads that come from same-stance agents.
+    Higher score = stronger echo chamber.
+    
+    Returns:
+        echo_per_agent: shape (num_agents, T_total)
+        echo_mean: scalar, mean across all agents and timesteps
+    """
+    graph_data = replica["graph_data"]
+    num_agents = len(graph_data["agents"])
+    T_total = graph_data["T_total"]
+    
+    echo_per_agent = np.zeros((num_agents, T_total))
+    
+    for agent_id in range(num_agents):
+        my_stance = graph_data["agents"][agent_id]["stance"]
+        read_history = graph_data["read_history"][agent_id]
+        
+        for t in range(T_total):
+            reads = read_history[t]
+            
+            same_stance = 0
+            total_reads = 0
+            
+            for author_id, post_t in reads:
+                if author_id != -1 and post_t != -1:
+                    author_stance = graph_data["agents"][author_id]["stance"]
+                    total_reads += 1
+                    if author_stance == my_stance:
+                        same_stance += 1
+            
+            if total_reads == 0:
+                echo_per_agent[agent_id, t] = 0
+            else:
+                echo_per_agent[agent_id, t] = same_stance / total_reads
+    
+    echo_mean = echo_per_agent.mean()
+    
+    return echo_per_agent, echo_mean
+
+
+def calculate_engagement_patterns(replica):
+    """
+    Engagement patterns: like rates by stance.
+    
+    Computes:
+    1. Like rate when reading same-stance posts
+    2. Like rate when reading different-stance posts
+    3. Overall like rate
+    
+    Returns:
+        engagement_stats: dict with various engagement metrics
+    """
+    graph_data = replica["graph_data"]
+    INDIVIDUAL_LIKES = replica["INDIVIDUAL_LIKES"]
+    num_agents = len(graph_data["agents"])
+    T_total = graph_data["T_total"]
+    
+    same_stance_likes = 0
+    same_stance_reads = 0
+    
+    diff_stance_likes = 0
+    diff_stance_reads = 0
+    
+    total_likes = 0
+    total_reads = 0
+    
+    for agent_id in range(num_agents):
+        my_stance = graph_data["agents"][agent_id]["stance"]
+        read_history = graph_data["read_history"][agent_id]
+        
+        for t in range(T_total):
+            reads = read_history[t]
+            
+            for author_id, post_t in reads:
+                if author_id != -1 and post_t != -1:
+                    author_stance = graph_data["agents"][author_id]["stance"]
+                    
+                    liked = INDIVIDUAL_LIKES[agent_id, author_id, post_t]
+                    
+                    total_reads += 1
+                    if liked:
+                        total_likes += 1
+                    
+                    if author_stance == my_stance:
+                        same_stance_reads += 1
+                        if liked:
+                            same_stance_likes += 1
+                    else:
+                        diff_stance_reads += 1
+                        if liked:
+                            diff_stance_likes += 1
+    
+    engagement_stats = {
+        "overall_like_rate": total_likes / total_reads if total_reads > 0 else 0,
+        "same_stance_like_rate": same_stance_likes / same_stance_reads if same_stance_reads > 0 else 0,
+        "diff_stance_like_rate": diff_stance_likes / diff_stance_reads if diff_stance_reads > 0 else 0,
+        "like_rate_ratio": (same_stance_likes / same_stance_reads) / (diff_stance_likes / diff_stance_reads) if diff_stance_reads > 0 and diff_stance_likes > 0 else np.inf,
+        "total_likes": total_likes,
+        "total_reads": total_reads,
     }
+    
+    return engagement_stats
+
+
+def calculate_all_metrics(run_path):
+    """
+    Calculate all three metrics for a simulation run.
+    
+    Args:
+        run_path: Path to the saved simulation run (e.g., "runs/Exp_W_post")
+    
+    Returns:
+        results: dict with metrics for each replica
+    """
+    replicas, manifest = load_run(run_path)
+    
+    results = {
+        "run_path": run_path,
+        "params": manifest["params"],
+        "replicas": []
+    }
+    
+    for r, replica in enumerate(replicas):
+        diversity_per_agent, diversity_mean = calculate_exposure_diversity(replica)
+        echo_per_agent, echo_mean = calculate_echo_chamber_score(replica)
+        engagement_stats = calculate_engagement_patterns(replica)
+        
+        results["replicas"].append({
+            "replica_id": r,
+            "exposure_diversity": {
+                "per_agent": diversity_per_agent,
+                "mean": diversity_mean,
+            },
+            "echo_chamber": {
+                "per_agent": echo_per_agent,
+                "mean": echo_mean,
+            },
+            "engagement": engagement_stats,
+        })
+    
+    return results
+
+
+def print_summary(results):
+    """Print a summary of the metrics across all replicas."""
+    print(f"\n{'='*60}")
+    print(f"METRICS SUMMARY: {results['run_path']}")
+    print(f"{'='*60}\n")
+    
+    num_replicas = len(results["replicas"])
+    
+    diversity_means = [r["exposure_diversity"]["mean"] for r in results["replicas"]]
+    echo_means = [r["echo_chamber"]["mean"] for r in results["replicas"]]
+    overall_like_rates = [r["engagement"]["overall_like_rate"] for r in results["replicas"]]
+    same_stance_rates = [r["engagement"]["same_stance_like_rate"] for r in results["replicas"]]
+    diff_stance_rates = [r["engagement"]["diff_stance_like_rate"] for r in results["replicas"]]
+    
+    print(f"EXPOSURE DIVERSITY (entropy of stance distribution)")
+    print(f"  Mean across replicas: {np.mean(diversity_means):.3f} ± {np.std(diversity_means):.3f}")
+    print()
+    
+    print(f"ECHO CHAMBER SCORE (fraction same-stance reads)")
+    print(f"  Mean across replicas: {np.mean(echo_means):.3f} ± {np.std(echo_means):.3f}")
+    print()
+    
+    print(f"ENGAGEMENT PATTERNS")
+    print(f"  Overall like rate: {np.mean(overall_like_rates):.3f} ± {np.std(overall_like_rates):.3f}")
+    print(f"  Same-stance like rate: {np.mean(same_stance_rates):.3f} ± {np.std(same_stance_rates):.3f}")
+    print(f"  Diff-stance like rate: {np.mean(diff_stance_rates):.3f} ± {np.std(diff_stance_rates):.3f}")
+    print()
+    
+    print(f"{'='*60}\n")
+
+
+
+
+
+

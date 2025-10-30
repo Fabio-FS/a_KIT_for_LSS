@@ -16,10 +16,14 @@ import inspect
 
 
 
-def initialize_agents(G, PARAMS):
+async def initialize_agents(G, PARAMS):
     model = get_model(PARAMS["opinion_model"])
-    func = model.initialize_agents      
-    return func(G, PARAMS)
+    func = model.initialize_agents
+    if inspect.iscoroutinefunction(func):
+        return await func(G, PARAMS)
+    else:
+        return func(G, PARAMS)
+
 async def thermalize_system(G, PARAMS):
     model = get_model(PARAMS["opinion_model"])
     func = model.thermalize_system
