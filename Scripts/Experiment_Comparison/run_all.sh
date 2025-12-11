@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=lss_batch_size_tuning
+#SBATCH --job-name=lss_experiments
 #SBATCH --partition=dev_accelerated
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -13,7 +13,9 @@ set -euo pipefail
 # Setup environment
 export HF_HOME=$(ws_find llm_models)/hf_cache
 export TRANSFORMERS_CACHE="$HF_HOME"
-cd $(ws_find llm_models)
+
+# Navigate to your project root
+cd $(ws_find llm_models)/PROJECTS/a_KIT_for_LSS
 
 # Array of parameter files
 PARAMS_FILES=(
@@ -39,7 +41,7 @@ START_TIME=$(date +%s)
 # Run experiment inside singularity
 singularity exec --nv \
     --bind $(ws_find llm_models):$(ws_find llm_models) \
-    vllm.sif \
+    $(ws_find llm_models)/vllm.sif \
     python3 Scripts/Experiment_Comparison/run_experiment.py Scripts/Experiment_Comparison/${PARAMS_FILE}
 
 # End timer

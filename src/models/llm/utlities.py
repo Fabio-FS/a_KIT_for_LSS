@@ -124,12 +124,15 @@ def _compose_prompt_for_posts(G, agent, t, POSTS, memory=10):
     coord = [me, t]
     return PROMPT, coord
 
-async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128, batch_size=512, temperature=1.2):
+async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=200, temperature=1.2):
    """
    Execute prompts in batches and return coordinates and texts as separate lists.
    coords3 is the coordinate of the post to be evaluated
    [0] is reader index, [1] is sender index, [2] is timestep
    """
+   batch_size = PARAMS.get("batch_size", 512)
+   concurrency = PARAMS.get("concurrency", 64)
+   
    def _chunks(seq, size):
        for i in range(0, len(seq), size):
            yield i, seq[i:i+size]
@@ -142,8 +145,9 @@ async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128,
            chunk,
            PARAMS,
            max_tokens=max_tokens,
-           temperature=temperature,  # Pass it through
-           parse=None
+           temperature=temperature,
+           parse=None,
+           concurrency=concurrency
        )
        for text in texts:
            result_coords.append(coords3[write_idx])
@@ -151,7 +155,6 @@ async def _execute_prompts_with_coords(prompts, coords3, PARAMS, max_tokens=128,
            write_idx += 1
    
    return result_coords, result_texts
-
 
 def print_prompt(prompt):
     print("=" * 50)

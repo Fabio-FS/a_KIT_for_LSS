@@ -16,5 +16,7 @@
   "W_personal_weights": 1.0,
   "noise_level": 0.1,
   "memory": 10,
+  "batch_size": 512,
+  "concurrency": 64,
   "MODEL": "meta-llama/Llama-3.1-8B-Instruct"
 }

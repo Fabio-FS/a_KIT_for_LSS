@@ -39,7 +39,6 @@ def _digit_to_prob(s: str) -> float:
             return d / 9.0
     raise ValueError(f"No digit found in string: '{s}'")
 
-
 async def execute_prompts_parallel(
     prompts: List[Any],
     PARAMS: dict,
@@ -64,7 +63,7 @@ async def execute_prompts_parallel(
     PARAMS: dict with keys:
         - "API_URL": str   (OpenAI-compatible /v1/chat/completions endpoint)
         - "MODEL": str
-        - "HF_TOKEN": str
+        - "HF_TOKEN": str (optional, can be empty for local vLLM)
     max_tokens: tokens to request from the model.
     temperature: sampling temperature.
     parse:
@@ -72,7 +71,7 @@ async def execute_prompts_parallel(
         - None or "raw"   -> returns list[str] (raw text)
     timeout: per-request timeout, seconds.
     retries: number of retry attempts on transient errors.
-    concurrency: max in-flight requests; default = min(8, len(prompts)).
+    concurrency: max in-flight requests; if None, defaults to min(64, len(prompts)).
 
     Returns
     -------
@@ -84,17 +83,15 @@ async def execute_prompts_parallel(
     session = await get_session()
     api_url = PARAMS["API_URL"]
     model = PARAMS["MODEL"]
-    token = PARAMS["HF_TOKEN"]
-    headers = {"Authorization": f"Bearer {token}"}
+    token = PARAMS.get("HF_TOKEN", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-    # Reasonable default concurrency
     if concurrency is None:
         concurrency = min(64, max(1, len(prompts)))
 
     sem = asyncio.Semaphore(concurrency)
 
     def _as_messages(p: Any) -> list[dict]:
-        # If already a chat message list, use it directly; otherwise wrap as a single user message.
         if isinstance(p, list):
             return p
         return [{"role": "user", "content": str(p)}]
@@ -140,13 +137,11 @@ async def execute_prompts_parallel(
                 if attempt > retries:
                     raise Exception(f"API call failed after {retries} retries for prompt {idx}: {e}")
                 
-                # small exponential backoff
                 await asyncio.sleep(0.05 * attempt)
 
     tasks = [one_call(i, p) for i, p in enumerate(prompts)]
     results = await asyncio.gather(*tasks)
 
-    # Restore original order
     results.sort(key=lambda pair: pair[0])
     values = [v for _, v in results]
 
