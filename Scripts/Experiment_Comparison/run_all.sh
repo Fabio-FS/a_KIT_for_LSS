@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=lss_experiments
-#SBATCH --partition=gpu_a100_il
+#SBATCH --job-name=lss_batch_size_tuning
+#SBATCH --partition=dev_accelerated
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=04:00:00
+#SBATCH --time=00:30:00
 #SBATCH --array=0-3
 #SBATCH --output=logs/exp_%A_%a.out
 
