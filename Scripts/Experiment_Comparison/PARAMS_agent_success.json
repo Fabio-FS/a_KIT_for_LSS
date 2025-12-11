@@ -1,6 +1,6 @@
 {
-  "replicas": 5,
-  "num_agents": 50,
+  "replicas": 1,
+  "num_agents": 200,
   "neighbors": 4,
   "timesteps": 10,
   "warmup_length": 3,
