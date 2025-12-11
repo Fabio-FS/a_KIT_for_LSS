@@ -115,7 +115,6 @@ async def execute_prompts_parallel(
                     async with session.post(
                         api_url, headers=headers, json=payload, timeout=timeout
                     ) as resp:
-                        # If rate-limited or server error, raise to trigger retry.
                         if resp.status >= 500 or resp.status == 429:
                             text = await resp.text()
                             raise aiohttp.ClientResponseError(
@@ -126,8 +125,10 @@ async def execute_prompts_parallel(
                                 headers=resp.headers,
                             )
                         data = await resp.json()
-                        #print(f"DEBUG - Full API response: {data}")  # Add this line
-                        #scontent = data["choices"][0]["message"]["content"]
+                        
+                        if "choices" not in data:
+                            print(f"ERROR - API response: {data}")
+                            raise KeyError(f"'choices' not in response")
 
                 content = data["choices"][0]["message"]["content"]
                 if parse == "digit_to_prob":
