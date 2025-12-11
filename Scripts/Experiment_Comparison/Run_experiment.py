@@ -2,6 +2,11 @@ import json
 import os
 import sys
 import asyncio
+
+# Add project root to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, project_root)
+
 from src.simulation import run_simulation
 from src.save import save_simulation_results
 
@@ -18,11 +23,11 @@ def main():
     
     # Set API URL for local vLLM server (no token needed)
     PARAMS["API_URL"] = "http://localhost:8000/v1/chat/completions"
-    PARAMS["HF_TOKEN"] = ""  # Empty string, won't be used
+    PARAMS["HF_TOKEN"] = ""
     
     # Extract experiment name from params file
     exp_name = os.path.basename(params_file).replace("PARAMS_", "").replace(".json", "")
-    out_root = f"../runs/{exp_name}"
+    out_root = f"../../runs/{exp_name}"
     
     print(f"Running experiment: {exp_name}")
     print(f"Output directory: {out_root}")
