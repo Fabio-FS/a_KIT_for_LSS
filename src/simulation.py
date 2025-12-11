@@ -3,7 +3,7 @@ import igraph as ig
 import asyncio
 import aiohttp
 
-from src.executors.hf import close_session_if_any
+from src.executors.vllm_offline import close_session_if_any
 
 from src.interfaces import initialize_agents, thermalize_system, evaluate_likes, generate_posts
 

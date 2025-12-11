@@ -1,5 +1,5 @@
+from src.executors.vllm_offline import execute_prompts_parallel  # your async batch HF caller+
 
-from src.executors.hf import execute_prompts_parallel  # your async batch HF caller+
 
 
 def load_usernames(filename="1024_Realistic_Usernames.csv") -> list[str]:
