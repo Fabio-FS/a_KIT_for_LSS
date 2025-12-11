@@ -28,7 +28,7 @@ async def run_simulation(PARAMS):
             G["T_current"] = i
             print(f"T_current: {G['T_current']}")
             
-            WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k=2)
+            WEIGHTS, TOP_POSTS, READ_MATRIX = _matrix_operations(G, READ_MATRIX, LIKES, PARAMS, WEIGHTS, k=PARAMS["post_read_per_round"])
             
             decision, coords = await evaluate_likes(G, TOP_POSTS, POSTS, PARAMS)
             _update_likes_and_consequences(G, LIKES, INDIVIDUAL_LIKES, decision, coords)
@@ -113,7 +113,9 @@ def _initialize_matrices(G, PARAMS):
 
 
 
-def _matrix_operations(G, read_MATRIX, LIKES, PARAMS, WEIGHTS, k = 2):
+def _matrix_operations(G, read_MATRIX, LIKES, PARAMS, WEIGHTS, k=None):
+    if k is None:
+        k = PARAMS["post_read_per_round"]
     WEIGHTS = _calculate_weights(G, read_MATRIX, LIKES, PARAMS)
     TOP_POSTS = _find_top_k_posts(G, WEIGHTS, k=k)
     READ_MATRIX = _mark_posts_as_read(G, read_MATRIX, TOP_POSTS)
